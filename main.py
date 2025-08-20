@@ -104,6 +104,7 @@ def callback_info(callback):
     if callback.data == 'information':
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton('Посилання на телеграм канали', callback_data='teleChats'))
+        markup.add(types.InlineKeyboardButton('Файли з предметів', callback_data='files_folders'))
         bot.send_message(callback.message.chat.id,'Яку інформацію або матеріали ві бі хотіли отримати?', reply_markup=markup)
 
     # Посилання на телеграм канали
@@ -143,6 +144,12 @@ def callback_info(callback):
     elif callback.data == 'show_verification':
         show_verification(callback.message)
 
+    elif callback.data == 'files_folders':
+        markup = types.InlineKeyboardMarkup()
+        for folder in os.listdir('files'):
+            markup.add(types.InlineKeyboardButton(folder, callback_data=f'folders|{folder}'))
+        bot.send_message(callback.message.chat.id, "Оберіть потрібний вам предмет:", reply_markup=markup)
+
 
 # ==============
 # Обробка команд
@@ -150,6 +157,10 @@ def callback_info(callback):
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
+    
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add(types.KeyboardButton('/start'))
+
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton('Інформація', callback_data='information'))
     data = open_json('information/admins.json')
@@ -158,6 +169,7 @@ def start_command(message):
         markup.add(types.InlineKeyboardButton("admin_tools", callback_data='admin_tools'))
 
     bot.send_message(message.chat.id, f'Вітаємо, {message.from_user.first_name} {message.from_user.last_name}, у боті Liceum. Оберіть дію.', reply_markup= markup)
+    bot.send_message(message.chat.id,"⬇ Ви завжди можете перезапустити бота натиснувши /start",reply_markup=keyboard)
 
 @bot.message_handler(commands=['info'])
 def information(message):
