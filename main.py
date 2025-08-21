@@ -1,8 +1,9 @@
 #=========================
 # Made by matin357 in 2025
 #=========================
-import json, sqlite3, telebot, os, sys, hashlib
+import json, sqlite3, telebot, os, sys, hashlib, time, threading
 from telebot import types
+from collections import defaultdict
 
 
 # ==========================
@@ -18,6 +19,9 @@ CREATE TABLE IF NOT EXISTS ver (
     tg_id INTEGER NOT NULL
 )''')
 con.commit()
+
+albums = defaultdict(list)
+timers ={}
 
 
 # ================
@@ -100,6 +104,10 @@ def show_verification(message):
 def save_file_to_folder(message, folder_name):
     path = f'files/{folder_name}'
     if message.document:
+        if len(message.document.file_name)>32:
+            bot.send_message(message.chat.id, "❌ Завелика назва файлу! Спробуйте ще раз.")
+            bot.register_next_step_handler(message, save_file_to_folder, folder_name)
+            return
         file = bot.get_file(message.document.file_id)
         download_file = bot.download_file(file.file_path)
 
@@ -111,17 +119,52 @@ def save_file_to_folder(message, folder_name):
     
     elif message.photo:
         file = bot.get_file(message.photo[-1].file_id) 
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        file_name = f"photo_{timestamp}.jpg"
+        if len(file_name) > 32:
+            bot.send_message(message.chat.id, f"❌ Назва фото занадто довга (макс. {32} символа). Спробуйте ще раз.")
+            bot.register_next_step_handler(message, save_file_to_folder, folder_name)
+            return
         download_file = bot.download_file(file.file_path)
 
-        file_path = os.path.join(path, f"photo_{message.photo[-1].file_id}.jpg")
+        file_path = os.path.join(path, file_name)
         with open(file_path, "wb") as new_file:
             new_file.write(download_file)
         
-        bot.send_message(message.chat.id, f"✅ Файл '{message.document.file_name}' збережено у {folder_name}")
+        bot.send_message(message.chat.id, f"✅ Фото збережено у {folder_name}")
 
     else:
         bot.send_message(message.chat.id, "❌ Ви маєте надіслати файл або фото.")
         bot.register_next_step_handler(message, save_file_to_folder, folder_name)
+
+def save_files_to_folder(message, folder_name):
+    if message.media_group_id:
+        albums[message.media_group_id].append(message)
+
+        if message.media_group_id in timers:
+            timers[message.media_group_id].cancel()
+
+        def save_album(media_group_id=message.media_group_id):
+            messages = albums.pop(media_group_id, [])
+            timers.pop(media_group_id, None)
+            for msg in messages:
+                save_file_to_folder(msg, folder_name)
+
+        t = threading.Timer(1.5, save_album)
+        timers[message.media_group_id] = t
+        t.start()
+    else:
+        save_file_to_folder(message, folder_name)
+
+def add_telechat(message):
+    name = message.text
+    data = open_json("information/teleChats.json")
+    def create_telechat(message):
+        data[name] = message.text
+        save_json("information/teleChats.json", data)
+        bot.send_message(message.chat.id, "Канал створено")
+    bot.send_message(message.chat.id, "Вкажіть посилання на телеграм канал:")
+    bot.register_next_step_handler(message, create_telechat)
 
 
 
@@ -221,10 +264,50 @@ def callback_info(callback):
     elif callback.data.startswith('folders_add|'):
         folder_name = callback.data.split("|", 1)[1]
         path = f'files/{folder_name}'
-        bot.send_message(callback.message.chat.id, f"📂 Ви обрали папку: {folder_name}\nТепер надішліть файл для збереження.")
+        bot.send_message(callback.message.chat.id, f"📂 Ви обрали папку: {folder_name}\nТепер надішліть файл для збереження.\nПОПЕРЕДЖЕННЯ!!! Нідсилайте тільки один файл! Поки що можливість надсилати декілька файлів не реалізована! Чекайте в наступних оновленнях.")
         bot.register_next_step_handler(callback.message, save_file_to_folder, folder_name)
     
+    elif callback.data.startswith('folders_delete|'):
+        folder_name = callback.data.split("|", 1)[1]
+        path = f'files/{folder_name}'
+        markup = types.InlineKeyboardMarkup()
+        files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+        if not files:
+            bot.send_message(callback.message.chat.id, f"📂 Папка '{folder_name}' порожня.")
+            return
+        for f in files:
+            markup.add(types.InlineKeyboardButton(f, callback_data=f"file_delete|{folder_name}|{f}"))
+        bot.send_message(callback.message.chat.id,"Оберыть файл який хочете видалити", reply_markup=markup)
+    
+    elif callback.data.startswith('file_delete|'):
+        _,folder_name, file_name = callback.data.split("|", 2)
+        file_path = os.path.join("files", folder_name, file_name)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            bot.send_message(callback.message.chat.id, f"✅ Файл '{file_name}' видалено.")
+        else:
+            bot.send_message(callback.message.chat.id, f"❌ Файл '{file_name}' не знайдено.")
 
+    elif callback.data == 'add_telechat':
+        bot.send_message(callback.message.chat.id, "Вкажіть назву телеграм каналу:")
+        bot.register_next_step_handler(callback.message, add_telechat)
+
+    elif callback.data == 'delete_telechat':
+        data = open_json("information/teleChats.json")
+        markup = types.InlineKeyboardMarkup()
+        for name in data:
+            markup.add(types.InlineKeyboardButton(name, callback_data=f'del_telechat|{name}'))
+        bot.send_message(callback.message.chat.id, "Оберіть телеграм канал який хочете видалити зі списку:", reply_markup=markup)
+
+    elif callback.data.startswith('del_telechat|'):
+        chat_name = callback.data.split("|",1)[1]
+        data = open_json("information/teleChats.json")
+        if chat_name in data:
+            del data[chat_name]
+            save_json("information/teleChats.json", data)
+            bot.send_message(callback.message.chat.id, "Телеграм канал видалено зі списку:")
+        else:
+            bot.send_message(callback.message.chat.id, "Такого телеграм каналу вже не існує.")
 
 # ==============
 # Обробка команд
