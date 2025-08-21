@@ -1,5 +1,9 @@
-import json, sqlite3, telebot, os, sys
+#=========================
+# Made by matin357 in 2025
+#=========================
+import json, sqlite3, telebot, os, sys, hashlib
 from telebot import types
+
 
 # ==========================
 # Інніціалізація бази данних
@@ -59,7 +63,8 @@ def new_teacher(message):
         bot.send_message(message.chat.id, "❌ Ви вийшли з додавання вчителя.")
         return
     try:
-        teacher_id = int(message.text.strip())
+        teacher = str(message.text.strip())
+        teacher_id = hashlib.md5(teacher.encode()).hexdigest()
         data = open_json('information/admins.json')
         data["teachers_id"].append(teacher_id)
         save_json("information/admins.json", data)
@@ -72,7 +77,8 @@ def new_admin(message):
         bot.send_message(message.chat.id, "❌ Ви вийшли з додавання адміна.")
         return
     try:
-        admin_id = int(message.text.strip())
+        admin =str(message.text.strip())
+        admin_id = hashlib.md5(admin.encode()).hexdigest()
         data = open_json('information/admins.json')
         data["admins_id"].append(admin_id)
         save_json('information/admins.json', data)
@@ -91,6 +97,33 @@ def show_verification(message):
         text += f"🆔 {row[0]} | 👤 {row[1]} | 💬 {row[2]}\n"
         bot.send_message(message.chat.id, text)
 
+def save_file_to_folder(message, folder_name):
+    path = f'files/{folder_name}'
+    if message.document:
+        file = bot.get_file(message.document.file_id)
+        download_file = bot.download_file(file.file_path)
+
+        file_path = os.path.join(path, message.document.file_name)
+        with open(file_path, "wb") as new_file:
+            new_file.write(download_file)
+        
+        bot.send_message(message.chat.id, f"✅ Файл '{message.document.file_name}' збережено у {folder_name}")
+    
+    elif message.photo:
+        file = bot.get_file(message.photo[-1].file_id) 
+        download_file = bot.download_file(file.file_path)
+
+        file_path = os.path.join(path, f"photo_{message.photo[-1].file_id}.jpg")
+        with open(file_path, "wb") as new_file:
+            new_file.write(download_file)
+        
+        bot.send_message(message.chat.id, f"✅ Файл '{message.document.file_name}' збережено у {folder_name}")
+
+    else:
+        bot.send_message(message.chat.id, "❌ Ви маєте надіслати файл або фото.")
+        bot.register_next_step_handler(message, save_file_to_folder, folder_name)
+
+
 
 # ==============
 # Обробка кнопок
@@ -101,14 +134,32 @@ def callback_info(callback):
 
     # Інформація щодо навчання
     # ------------------------
+
     if callback.data == 'information':
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton('Посилання на телеграм канали', callback_data='teleChats'))
         markup.add(types.InlineKeyboardButton('Файли з предметів', callback_data='files_folders'))
         bot.send_message(callback.message.chat.id,'Яку інформацію або матеріали ві бі хотіли отримати?', reply_markup=markup)
 
+    elif callback.data == 'files_folders':
+        markup = types.InlineKeyboardMarkup()
+        for folder in os.listdir('files'):
+            markup.add(types.InlineKeyboardButton(folder, callback_data=f'folders|{folder}'))
+        bot.send_message(callback.message.chat.id, "Оберіть потрібний вам предмет:", reply_markup=markup)
+
+    elif callback.data.startswith("folders|"):
+        folder_name = callback.data.split("|", 1)[1]
+        path = f'files/{folder_name}'
+        files = os.listdir(path)
+        for file in files:
+            file_path = os.path.join(path, file)
+            if os.path.isfile(file_path):
+                with open(file_path, "rb") as f:
+                    bot.send_document(callback.message.chat.id, f)
+
     # Посилання на телеграм канали
     # ----------------------------
+
     elif callback.data == 'teleChats':
         with open("information/teleChats.json", "r", encoding="utf-8") as f:
             js = json.load(f)
@@ -117,6 +168,7 @@ def callback_info(callback):
 
     # Інструменти адміна
     # ------------------
+
     elif callback.data == 'admin_tools':
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton('Вимкнути бота', callback_data='shut_down'))
@@ -143,12 +195,35 @@ def callback_info(callback):
         
     elif callback.data == 'show_verification':
         show_verification(callback.message)
+    
+    # Інструменти для вчителів
+    # ------------------------
+    elif callback.data == "teacher_tools":
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("Додати файл", callback_data='add_file'))
+        markup.add(types.InlineKeyboardButton("Видалити файл", callback_data='delete_file'))
+        markup.add(types.InlineKeyboardButton("Додати телегам канал", callback_data='add_telechat'))
+        markup.add(types.InlineKeyboardButton("видалити телеграм каналь", callback_data='delete_telechat'))
+        bot.send_message(callback.message.chat.id, "Оберіть дію", reply_markup=markup)
 
-    elif callback.data == 'files_folders':
+    elif callback.data == 'add_file':
         markup = types.InlineKeyboardMarkup()
         for folder in os.listdir('files'):
-            markup.add(types.InlineKeyboardButton(folder, callback_data=f'folders|{folder}'))
+            markup.add(types.InlineKeyboardButton(folder, callback_data=f'folders_add|{folder}'))
         bot.send_message(callback.message.chat.id, "Оберіть потрібний вам предмет:", reply_markup=markup)
+    
+    elif callback.data == 'delete_file':
+        markup = types.InlineKeyboardMarkup()
+        for folder in os.listdir('files'):
+            markup.add(types.InlineKeyboardButton(folder, callback_data=f'folders_delete|{folder}'))
+        bot.send_message(callback.message.chat.id, "Оберіть потрібний вам предмет:", reply_markup=markup)
+
+    elif callback.data.startswith('folders_add|'):
+        folder_name = callback.data.split("|", 1)[1]
+        path = f'files/{folder_name}'
+        bot.send_message(callback.message.chat.id, f"📂 Ви обрали папку: {folder_name}\nТепер надішліть файл для збереження.")
+        bot.register_next_step_handler(callback.message, save_file_to_folder, folder_name)
+    
 
 
 # ==============
@@ -164,9 +239,12 @@ def start_command(message):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton('Інформація', callback_data='information'))
     data = open_json('information/admins.json')
+    user = str(message.from_user.id)
 
-    if message.from_user.id in data["admins_id"]:
+    if hashlib.md5(user.encode()).hexdigest() in data["admins_id"]:
         markup.add(types.InlineKeyboardButton("admin_tools", callback_data='admin_tools'))
+    if hashlib.md5(user.encode()).hexdigest() in data["teachers_id"]:
+        markup.add(types.InlineKeyboardButton("Інструменти для вчителів", callback_data='teacher_tools'))
 
     bot.send_message(message.chat.id, f'Вітаємо, {message.from_user.first_name} {message.from_user.last_name}, у боті Liceum. Оберіть дію.', reply_markup= markup)
     bot.send_message(message.chat.id,"⬇ Ви завжди можете перезапустити бота натиснувши /start",reply_markup=keyboard)
